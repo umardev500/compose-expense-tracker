@@ -12,9 +12,9 @@ import androidx.compose.ui.Modifier
 import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.navigator.tab.CurrentTab
 import cafe.adriel.voyager.navigator.tab.LocalTabNavigator
-import cafe.adriel.voyager.navigator.tab.Tab
 import cafe.adriel.voyager.navigator.tab.TabNavigator
 import com.umar.expensetracker.app.navigation.HomeTab
+import com.umar.expensetracker.app.navigation.appTabs
 
 class MainScreen : Screen {
     @Composable
@@ -26,22 +26,26 @@ class MainScreen : Screen {
                     NavigationBar {
                         val tabNavigator = LocalTabNavigator.current
 
-                        listOf<Tab>(
-                            HomeTab
-                        ).forEach { tab ->
+                        appTabs.forEach { tab ->
+                            val selected = tabNavigator.current == tab
                             NavigationBarItem(
-                                selected = tabNavigator.current == tab,
-                                onClick = {},
+                                selected = selected,
+                                onClick = {
+                                    tabNavigator.current = tab
+                                },
                                 icon = {
                                     Icon(
-                                        painter = tab.options.icon!!,
+                                        imageVector = if (selected) {
+                                            tab.icons.selected
+                                        } else {
+                                            tab.icons.unselected
+                                        },
                                         contentDescription = tab.options.title
                                     )
                                 },
                                 label = {
                                     Text(tab.options.title)
-                                }
-                            )
+                                })
                         }
                     }
                 }) { paddingValues ->

@@ -1,0 +1,54 @@
+
+# IntelliJ / Android Studio
+*.iml
+.idea/
+!.idea/codeStyles/
+!.idea/runConfigurations/
+
+# Gradle
+.gradle/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local configuration
+/local.properties
+local.properties
+
+# Android build outputs
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# Android Studio generated files
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Kotlin
+.kotlin/
+*.kotlin_module
+
+# Signing keys
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# Environment files
+.env
+.env.*
+!.env.example

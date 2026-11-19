@@ -61,6 +61,9 @@ dependencies {
     implementation(libs.voyager.transitions)
     implementation(libs.voyager.hilt)
     implementation(libs.voyager.bottomSheetNavigator)
+    implementation(libs.voyager.tabNavigator)
+
+    implementation(libs.androidx.compose.material.icons.extended)
 
     ksp(libs.hilt.compiler)
 }

@@ -10,7 +10,7 @@ import cafe.adriel.voyager.transitions.SlideTransition
 @Composable
 fun RootNavigator() {
     Navigator(
-        screen = ScreenRegistry.get(ScreenFactory.Dashboard)
+        screen = ScreenRegistry.get(ScreenFactory.Main)
     ) { navigator ->
         SlideTransition(
             navigator = navigator,

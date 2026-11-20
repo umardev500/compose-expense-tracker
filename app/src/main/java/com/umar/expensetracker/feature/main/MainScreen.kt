@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import cafe.adriel.voyager.core.screen.Screen
+import cafe.adriel.voyager.core.screen.ScreenKey
 import cafe.adriel.voyager.navigator.tab.CurrentTab
 import cafe.adriel.voyager.navigator.tab.LocalTabNavigator
 import cafe.adriel.voyager.navigator.tab.TabNavigator
@@ -17,6 +18,8 @@ import com.umar.expensetracker.app.navigation.HomeTab
 import com.umar.expensetracker.app.navigation.appTabs
 
 class MainScreen : Screen {
+    override val key: ScreenKey = "main_screen"
+
     @Composable
     override fun Content() {
 

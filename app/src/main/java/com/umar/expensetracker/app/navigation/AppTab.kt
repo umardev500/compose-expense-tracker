@@ -73,7 +73,7 @@ object ReportTab : AppTab {
 
     @Composable
     override fun Content() {
-        Navigator(ScreenRegistry.get(ScreenFactory.Setting))
+        Navigator(ScreenRegistry.get(ScreenFactory.Report))
     }
 }
 
@@ -98,7 +98,7 @@ object PlanTab : AppTab {
 
     @Composable
     override fun Content() {
-        Navigator(ScreenRegistry.get(ScreenFactory.Setting))
+        Navigator(ScreenRegistry.get(ScreenFactory.Plan))
     }
 }
 

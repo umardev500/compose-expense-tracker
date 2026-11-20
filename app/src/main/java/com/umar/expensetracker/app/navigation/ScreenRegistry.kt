@@ -16,15 +16,15 @@ val screenModule = screenModule {
         DashboardScreen()
     }
 
-    register<ScreenFactory.Setting> {
-        SettingScreen()
+    register<ScreenFactory.Report> {
+        ReportScreen()
     }
 
     register<ScreenFactory.Plan> {
         PlanScreen()
     }
 
-    register<ScreenFactory.Report> {
-        ReportScreen()
+    register<ScreenFactory.Setting> {
+        SettingScreen()
     }
 }

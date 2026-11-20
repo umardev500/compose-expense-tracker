@@ -11,6 +11,6 @@ fun SettingContent() {
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
-        Text("Hi")
+        Text("Setting Screen")
     }
 }

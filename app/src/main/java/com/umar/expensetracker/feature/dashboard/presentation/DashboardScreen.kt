@@ -16,7 +16,8 @@ class DashboardScreen : Screen {
         val uiState by screenModel.uiState.collectAsState()
 
         DashboardContent(
-            uiState
+            uiState = uiState,
+            onToggleBalanceVisibility = { screenModel.toggleBalanceVisibility() },
         )
     }
 }

@@ -1,11 +1,13 @@
 package com.umar.expensetracker.feature.dashboard.presentation
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -13,13 +15,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,6 +40,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,17 +49,27 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.umar.expensetracker.R
@@ -60,9 +77,54 @@ import com.umar.expensetracker.feature.dashboard.domain.model.DashboardSummary
 import com.umar.expensetracker.ui.icon.HeroIcons
 import java.text.NumberFormat
 import java.util.Locale
+import kotlin.math.PI
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private const val MASKED_BALANCE = "••••••••"
 private const val MASKED_CASHFLOW = "••••"
+private const val MAX_VISIBLE_CATEGORY_ROWS = 3
+
+data class SpendingCategory(
+    val id: String,
+    val name: String,
+    val emoji: String,
+    val transactionCount: Int,
+    val amount: Double,
+    val accentColor: Color
+)
+
+private data class BudgetSnapshot(
+    val safeBalance: Double,
+    val safeExpense: Double,
+    val remainingAmount: Double,
+    val usedFraction: Float,
+    val remainingPercent: Int,
+    val isOverSpent: Boolean
+) {
+    companion object {
+        fun from(totalBalance: Double, totalExpense: Double): BudgetSnapshot {
+            val balance = totalBalance.coerceAtLeast(0.0)
+            val expense = totalExpense.coerceAtLeast(0.0)
+            val remaining = (balance - expense).coerceAtLeast(0.0)
+            val used = if (balance > 0.0) {
+                (expense / balance).toFloat().coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+            val remainingPct = ((1f - used) * 100).roundToInt().coerceIn(0, 100)
+            return BudgetSnapshot(
+                safeBalance = balance,
+                safeExpense = expense,
+                remainingAmount = remaining,
+                usedFraction = used,
+                remainingPercent = remainingPct,
+                isOverSpent = expense > balance && balance > 0.0
+            )
+        }
+    }
+}
 
 @Composable
 private fun rememberContentScrollModifier(
@@ -76,8 +138,11 @@ private fun rememberContentScrollModifier(
 fun DashboardContent(
     uiState: DashboardUiState,
     modifier: Modifier = Modifier,
+    spendingCategories: List<SpendingCategory> = defaultSpendingCategories(),
     onToggleBalanceVisibility: () -> Unit = {},
     onNotificationClick: () -> Unit = {},
+    onCategoryClick: (SpendingCategory) -> Unit = {},
+    onSeeAllSpendingClick: () -> Unit = {},
     onRefresh: () -> Unit = {}
 ) {
     Box(
@@ -101,8 +166,11 @@ fun DashboardContent(
             is DashboardUiState.Success -> {
                 PureDashboardContent(
                     state = uiState,
+                    spendingCategories = spendingCategories,
                     onToggleBalanceVisibility = onToggleBalanceVisibility,
                     onNotificationClick = onNotificationClick,
+                    onCategoryClick = onCategoryClick,
+                    onSeeAllSpendingClick = onSeeAllSpendingClick,
                     modifier = rememberContentScrollModifier()
                 )
             }
@@ -113,8 +181,11 @@ fun DashboardContent(
 @Composable
 private fun PureDashboardContent(
     state: DashboardUiState.Success,
+    spendingCategories: List<SpendingCategory>,
     onToggleBalanceVisibility: () -> Unit,
     onNotificationClick: () -> Unit,
+    onCategoryClick: (SpendingCategory) -> Unit,
+    onSeeAllSpendingClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -131,6 +202,91 @@ private fun PureDashboardContent(
             isBalanceVisible = state.isBalanceVisible,
             percentageChange = state.percentageChange,
             onToggleVisibility = onToggleBalanceVisibility
+        )
+
+        SpendingBreakdownSection(
+            categories = spendingCategories,
+            totalBalance = state.summary.totalBalance,
+            totalExpense = state.summary.totalExpense,
+            isBalanceVisible = state.isBalanceVisible,
+            onCategoryClick = onCategoryClick,
+            onSeeAllClick = onSeeAllSpendingClick
+        )
+    }
+}
+
+// ==========================================
+// Shared Containers & Progress Bar
+// ==========================================
+@Composable
+private fun TitaniumCard(
+    modifier: Modifier = Modifier,
+    contentPadding: Dp = 22.dp,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+        ),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(contentPadding),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun InsetSurface(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(18.dp),
+    color: Color = MaterialTheme.colorScheme.surfaceContainerLow,
+    borderAlpha: Float = 0.25f,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        shape = shape,
+        color = color,
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = borderAlpha)
+        ),
+        content = content
+    )
+}
+
+@Composable
+private fun ProgressMeterBar(
+    fraction: Float,
+    fillColor: Color,
+    trackColor: Color,
+    height: Dp,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(RoundedCornerShape(999.dp))
+            .background(trackColor)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction = fraction.coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(999.dp))
+                .background(fillColor)
         )
     }
 }
@@ -247,41 +403,23 @@ fun TitaniumHeroBalance(
     onToggleVisibility: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
-        ),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            HeroBalanceHeader(
-                onToggleVisibility = onToggleVisibility,
-                isBalanceVisible = isBalanceVisible
-            )
+    TitaniumCard(modifier = modifier, contentPadding = 24.dp) {
+        HeroBalanceHeader(
+            onToggleVisibility = onToggleVisibility,
+            isBalanceVisible = isBalanceVisible
+        )
 
-            HeroBalanceAmount(
-                totalBalance = summary.totalBalance,
-                isBalanceVisible = isBalanceVisible,
-                percentageChange = percentageChange
-            )
+        HeroBalanceAmount(
+            totalBalance = summary.totalBalance,
+            isBalanceVisible = isBalanceVisible,
+            percentageChange = percentageChange
+        )
 
-            CashflowSplitBar(
-                totalIncome = summary.totalIncome,
-                totalExpense = summary.totalExpense,
-                isBalanceVisible = isBalanceVisible
-            )
-        }
+        CashflowSplitBar(
+            totalIncome = summary.totalIncome,
+            totalExpense = summary.totalExpense,
+            isBalanceVisible = isBalanceVisible
+        )
     }
 }
 
@@ -295,14 +433,7 @@ private fun HeroBalanceHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            border = BorderStroke(
-                width = 0.8.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-            )
-        ) {
+        InsetSurface(shape = RoundedCornerShape(12.dp)) {
             Row(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -409,15 +540,7 @@ private fun CashflowSplitBar(
         enabled = isBalanceVisible
     )
 
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(
-            width = 0.8.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-        )
-    ) {
+    InsetSurface(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -510,7 +633,743 @@ private fun CashflowMetricItem(
 }
 
 // ==========================================
-// 3. Loading & Error States
+// 3. Spending Breakdown
+// ==========================================
+@Composable
+private fun SpendingBreakdownSection(
+    categories: List<SpendingCategory>,
+    totalBalance: Double,
+    totalExpense: Double,
+    isBalanceVisible: Boolean,
+    onCategoryClick: (SpendingCategory) -> Unit,
+    onSeeAllClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val sortedCategories = remember(categories) {
+        categories.sortedByDescending { it.amount }
+    }
+    val topRows = remember(sortedCategories) {
+        sortedCategories.take(MAX_VISIBLE_CATEGORY_ROWS)
+    }
+    val totalBase = remember(sortedCategories, totalExpense) {
+        val sum = sortedCategories.sumOf { it.amount }
+        if (sum > 0.0) sum else totalExpense.coerceAtLeast(1.0)
+    }
+    var selectedCategoryId by remember { mutableStateOf<String?>(null) }
+    val selectedCategory = remember(sortedCategories, selectedCategoryId) {
+        sortedCategories.find { it.id == selectedCategoryId }
+    }
+
+    TitaniumCard(modifier = modifier, contentPadding = 22.dp) {
+        SpendingBreakdownHeader(
+            selectedCategory = selectedCategory,
+            totalCategoryCount = sortedCategories.size,
+            onSeeAllClick = onSeeAllClick
+        )
+
+        RemainingSpendingBanner(
+            snapshot = BudgetSnapshot.from(totalBalance = totalBalance, totalExpense = totalExpense),
+            isBalanceVisible = isBalanceVisible
+        )
+
+        if (sortedCategories.isEmpty()) {
+            EmptySpendingState()
+        } else {
+            SpendingRingOverview(
+                categories = sortedCategories,
+                selectedCategory = selectedCategory,
+                totalBase = totalBase,
+                fallbackTotalExpense = totalExpense,
+                isBalanceVisible = isBalanceVisible
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                topRows.forEachIndexed { index, category ->
+                    val ratio = (category.amount / totalBase).toFloat().coerceIn(0f, 1f)
+                    val isSelected = selectedCategoryId == category.id
+                    val isDimmed = selectedCategoryId != null && !isSelected
+
+                    SpendingCategoryRow(
+                        category = category,
+                        ratio = ratio,
+                        isBalanceVisible = isBalanceVisible,
+                        isSelected = isSelected,
+                        isDimmed = isDimmed,
+                        animationDelayMillis = index * 70,
+                        onClick = {
+                            selectedCategoryId = if (isSelected) null else category.id
+                            onCategoryClick(category)
+                        }
+                    )
+
+                    if (index < topRows.lastIndex) {
+                        HorizontalDivider(
+                            thickness = 0.6.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpendingBreakdownHeader(
+    selectedCategory: SpendingCategory?,
+    totalCategoryCount: Int,
+    onSeeAllClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = "Rincian Pengeluaran",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = if (selectedCategory != null) {
+                    "Fokus: ${selectedCategory.emoji} ${selectedCategory.name}"
+                } else {
+                    "Top $MAX_VISIBLE_CATEGORY_ROWS kategori · $totalCategoryCount total"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        }
+
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(onClick = onSeeAllClick)
+        ) {
+            Text(
+                text = "Semua",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RemainingSpendingBanner(
+    snapshot: BudgetSnapshot,
+    isBalanceVisible: Boolean
+) {
+    val countedRemaining = rememberCountAnimation(
+        targetValue = snapshot.remainingAmount,
+        enabled = isBalanceVisible,
+        durationMillis = 500
+    )
+    val animatedUsedFraction by animateFloatAsState(
+        targetValue = if (isBalanceVisible) snapshot.usedFraction else 0f,
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        label = "remainingUsedFraction"
+    )
+
+    val statusColor = if (snapshot.isOverSpent || snapshot.remainingPercent <= 20) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.tertiary
+    }
+
+    InsetSurface(
+        modifier = Modifier.fillMaxWidth(),
+        borderAlpha = 0.28f
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = if (snapshot.isOverSpent) "Melebihi batas saldo" else "Sisa dana pengeluaran",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
+                    )
+                    Text(
+                        text = if (isBalanceVisible) {
+                            formatCurrency(countedRemaining, withCurrency = true)
+                        } else {
+                            MASKED_BALANCE
+                        },
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontFeatureSettings = "tnum"
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        color = statusColor,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = statusColor.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        text = if (isBalanceVisible) "${snapshot.remainingPercent}% tersisa" else MASKED_CASHFLOW,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFeatureSettings = "tnum"
+                        ),
+                        fontWeight = FontWeight.SemiBold,
+                        color = statusColor,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            ProgressMeterBar(
+                fraction = animatedUsedFraction,
+                fillColor = statusColor,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.65f),
+                height = 6.dp
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (isBalanceVisible) {
+                        "Terpakai: ${formatCurrency(snapshot.safeExpense)}"
+                    } else {
+                        "Terpakai: $MASKED_CASHFLOW"
+                    },
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFeatureSettings = "tnum"
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (isBalanceVisible) {
+                        "Saldo: ${formatCurrency(snapshot.safeBalance)}"
+                    } else {
+                        "Saldo: $MASKED_CASHFLOW"
+                    },
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFeatureSettings = "tnum"
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpendingRingOverview(
+    categories: List<SpendingCategory>,
+    selectedCategory: SpendingCategory?,
+    totalBase: Double,
+    fallbackTotalExpense: Double,
+    isBalanceVisible: Boolean
+) {
+    val trackColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f)
+    val displayAmount = selectedCategory?.amount
+        ?: categories.sumOf { it.amount }.takeIf { it > 0.0 }
+        ?: fallbackTotalExpense
+    val countedDisplayAmount = rememberCountAnimation(
+        targetValue = displayAmount,
+        enabled = isBalanceVisible,
+        durationMillis = 450
+    )
+
+    val segmentAnimatables = remember(categories.size) {
+        List(categories.size) { Animatable(0f) }
+    }
+
+    LaunchedEffect(categories, isBalanceVisible) {
+        if (!isBalanceVisible) {
+            segmentAnimatables.forEach { it.snapTo(0f) }
+        } else {
+            segmentAnimatables.forEachIndexed { index, anim ->
+                anim.snapTo(0f)
+                launch {
+                    delay(index * 85L)
+                    anim.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis = 600,
+                            easing = FastOutSlowInEasing
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    val selectionProgress by animateFloatAsState(
+        targetValue = if (selectedCategory != null) 1f else 0f,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "ringSelectionProgress"
+    )
+
+    val sharePercent = remember(selectedCategory, categories, totalBase) {
+        val target = selectedCategory?.amount
+            ?: categories.sumOf { it.amount }.takeIf { it > 0.0 }
+            ?: totalBase
+        ((target / totalBase) * 100).roundToInt().coerceIn(0, 100)
+    }
+
+    InsetSurface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.65f),
+        borderAlpha = 0.35f
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(
+                modifier = Modifier.size(98.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawSpendingRing(
+                        categories = categories,
+                        selectedCategory = selectedCategory,
+                        totalBase = totalBase,
+                        isBalanceVisible = isBalanceVisible,
+                        selectionProgress = selectionProgress,
+                        segmentProgress = { index -> segmentAnimatables.getOrNull(index)?.value ?: 1f },
+                        trackColor = trackColor
+                    )
+                }
+
+                RingCenterReadout(
+                    selectedCategory = selectedCategory,
+                    sharePercent = sharePercent,
+                    isBalanceVisible = isBalanceVisible
+                )
+            }
+
+            RingSummaryDetails(
+                categories = categories,
+                selectedCategory = selectedCategory,
+                sharePercent = sharePercent,
+                countedAmount = countedDisplayAmount,
+                isBalanceVisible = isBalanceVisible,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawSpendingRing(
+    categories: List<SpendingCategory>,
+    selectedCategory: SpendingCategory?,
+    totalBase: Double,
+    isBalanceVisible: Boolean,
+    selectionProgress: Float,
+    segmentProgress: (Int) -> Float,
+    trackColor: Color
+) {
+    val baseStroke = 9.dp.toPx()
+    val focusedStroke = 11.dp.toPx()
+    val maxInset = focusedStroke / 2f
+
+    drawArc(
+        color = trackColor,
+        startAngle = 0f,
+        sweepAngle = 360f,
+        useCenter = false,
+        topLeft = Offset(maxInset, maxInset),
+        size = Size(size.width - focusedStroke, size.height - focusedStroke),
+        style = Stroke(width = baseStroke, cap = StrokeCap.Round)
+    )
+
+    if (!isBalanceVisible) return
+
+    var currentAngle = -90f
+    val gapAngle = when {
+        categories.size <= 1 -> 0f
+        categories.size <= 4 -> 4f
+        else -> 2.5f
+    }
+
+    categories.forEachIndexed { index, category ->
+        val fullSweep = ((category.amount / totalBase).toFloat().coerceIn(0f, 1f)) * 360f
+        val animatedSweep = fullSweep * segmentProgress(index)
+
+        if (animatedSweep > 1f) {
+            val isSelected = selectedCategory?.id == category.id
+            val isDimmed = selectedCategory != null && !isSelected
+
+            val activeStroke = when {
+                selectedCategory == null -> baseStroke
+                isSelected -> baseStroke + (focusedStroke - baseStroke) * selectionProgress
+                else -> baseStroke - 1.5.dp.toPx() * selectionProgress
+            }.coerceAtLeast(4.dp.toPx())
+
+            val inset = activeStroke / 2f + ((focusedStroke - activeStroke) / 2f)
+            val arcSize = Size(
+                width = size.width - inset * 2f,
+                height = size.height - inset * 2f
+            )
+
+            val circumference = (PI * arcSize.width).toFloat().coerceAtLeast(1f)
+            val singleCapDegrees = ((activeStroke / 2f) / circumference) * 360f
+            val innerSweep = (animatedSweep - singleCapDegrees * 2f - gapAngle).coerceAtLeast(0.5f)
+            val startAngle = currentAngle + singleCapDegrees + (gapAngle / 2f)
+
+            val targetAlpha = if (isDimmed) 0.28f else 1f
+            val alpha = 1f - (1f - targetAlpha) * selectionProgress
+
+            drawArc(
+                color = category.accentColor.copy(alpha = alpha),
+                startAngle = startAngle,
+                sweepAngle = innerSweep,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = Stroke(width = activeStroke, cap = StrokeCap.Round)
+            )
+        }
+
+        currentAngle += fullSweep
+    }
+}
+
+@Composable
+private fun RingCenterReadout(
+    selectedCategory: SpendingCategory?,
+    sharePercent: Int,
+    isBalanceVisible: Boolean
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        if (selectedCategory != null) {
+            Text(
+                text = selectedCategory.emoji,
+                fontSize = 15.sp,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+        Text(
+            text = if (isBalanceVisible) "$sharePercent%" else MASKED_CASHFLOW,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontFeatureSettings = "tnum"
+            ),
+            fontWeight = FontWeight.Bold,
+            color = selectedCategory?.accentColor ?: MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            softWrap = false
+        )
+    }
+}
+
+@Composable
+private fun RingSummaryDetails(
+    categories: List<SpendingCategory>,
+    selectedCategory: SpendingCategory?,
+    sharePercent: Int,
+    countedAmount: Float,
+    isBalanceVisible: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val titleText = selectedCategory?.let { "${it.emoji} ${it.name}" } ?: "Total Pengeluaran"
+    val subtitleText = selectedCategory?.let {
+        "${it.transactionCount} transaksi · $sharePercent% dari total"
+    } ?: "${categories.sumOf { it.transactionCount }} transaksi · ${categories.size} kategori"
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = titleText,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = if (isBalanceVisible) {
+                formatCurrency(countedAmount, withCurrency = true)
+            } else {
+                MASKED_BALANCE
+            },
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontFeatureSettings = "tnum"
+            ),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = subtitleText,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun SpendingCategoryRow(
+    category: SpendingCategory,
+    ratio: Float,
+    isBalanceVisible: Boolean,
+    isSelected: Boolean,
+    isDimmed: Boolean,
+    animationDelayMillis: Int,
+    onClick: () -> Unit
+) {
+    val countedAmount = rememberCountAnimation(
+        targetValue = category.amount,
+        enabled = isBalanceVisible,
+        durationMillis = 550 + animationDelayMillis
+    )
+    val animatedRatio by animateFloatAsState(
+        targetValue = if (isBalanceVisible) ratio else 0f,
+        animationSpec = tween(
+            durationMillis = 600 + animationDelayMillis,
+            easing = FastOutSlowInEasing
+        ),
+        label = "categoryBarRatio"
+    )
+    val rowAlpha by animateFloatAsState(
+        targetValue = if (isDimmed) 0.45f else 1f,
+        animationSpec = tween(200),
+        label = "rowAlpha"
+    )
+    val rowBackground by animateColorAsState(
+        targetValue = if (isSelected) {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        } else {
+            Color.Transparent
+        },
+        animationSpec = tween(200),
+        label = "rowBg"
+    )
+
+    val percentage = (ratio * 100).roundToInt()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(rowAlpha)
+            .clip(RoundedCornerShape(14.dp))
+            .background(rowBackground)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Surface(
+                modifier = Modifier.size(38.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                border = BorderStroke(
+                    width = 1.5.dp,
+                    color = category.accentColor.copy(alpha = 0.5f)
+                )
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = category.emoji,
+                        fontSize = 18.sp,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = category.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${category.transactionCount} transaksi · $percentage%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = if (isBalanceVisible) formatCurrency(countedAmount) else MASKED_CASHFLOW,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontFeatureSettings = "tnum"
+                    ),
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = category.accentColor.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        text = "$percentage%",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        fontWeight = FontWeight.SemiBold,
+                        color = category.accentColor,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                    )
+                }
+            }
+        }
+
+        ProgressMeterBar(
+            fraction = animatedRatio,
+            fillColor = category.accentColor,
+            trackColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            height = 5.dp
+        )
+    }
+}
+
+@Composable
+private fun EmptySpendingState() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 24.dp, horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = "Belum ada pengeluaran",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Catat transaksi pertama untuk melihat rincian.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun defaultSpendingCategories(): List<SpendingCategory> = listOf(
+    SpendingCategory(
+        id = "food",
+        name = "Makanan & Minuman",
+        emoji = "🍜",
+        transactionCount = 18,
+        amount = 1_850_000.0,
+        accentColor = MaterialTheme.colorScheme.error
+    ),
+    SpendingCategory(
+        id = "bills",
+        name = "Tagihan & Utilitas",
+        emoji = "⚡",
+        transactionCount = 5,
+        amount = 1_550_000.0,
+        accentColor = MaterialTheme.colorScheme.tertiary
+    ),
+    SpendingCategory(
+        id = "transport",
+        name = "Transportasi",
+        emoji = "🚗",
+        transactionCount = 12,
+        amount = 1_450_000.0,
+        accentColor = MaterialTheme.colorScheme.primary
+    ),
+    SpendingCategory(
+        id = "shopping",
+        name = "Belanja & Gaya Hidup",
+        emoji = "🛍️",
+        transactionCount = 7,
+        amount = 920_000.0,
+        accentColor = MaterialTheme.colorScheme.secondary
+    ),
+    SpendingCategory(
+        id = "health",
+        name = "Kesehatan",
+        emoji = "🩺",
+        transactionCount = 3,
+        amount = 540_000.0,
+        accentColor = Color(0xFF0D9488)
+    ),
+    SpendingCategory(
+        id = "entertainment",
+        name = "Hiburan & Langganan",
+        emoji = "🎬",
+        transactionCount = 4,
+        amount = 360_000.0,
+        accentColor = Color(0xFFD97706)
+    )
+)
+
+// ==========================================
+// 4. Loading & Error States
 // ==========================================
 @Composable
 private fun PureLoadingSkeleton(
@@ -534,6 +1393,7 @@ private fun PureLoadingSkeleton(
     ) {
         TopBarSkeleton(placeholderColor = placeholderColor)
         HeroBalanceSkeleton(placeholderColor = placeholderColor)
+        SpendingBreakdownSkeleton(placeholderColor = placeholderColor)
     }
 }
 
@@ -582,68 +1442,144 @@ private fun TopBarSkeleton(placeholderColor: Color) {
 
 @Composable
 private fun HeroBalanceSkeleton(placeholderColor: Color) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
-        ),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+    TitaniumCard(contentPadding = 24.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(105.dp)
-                        .height(26.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(placeholderColor)
-                )
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(placeholderColor)
-                )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    modifier = Modifier
-                        .width(190.dp)
-                        .height(42.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(placeholderColor)
-                )
-                Box(
-                    modifier = Modifier
-                        .width(125.dp)
-                        .height(14.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(placeholderColor)
-                )
-            }
-
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                    .width(105.dp)
+                    .height(26.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(placeholderColor)
             )
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(placeholderColor)
+            )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                modifier = Modifier
+                    .width(190.dp)
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(placeholderColor)
+            )
+            Box(
+                modifier = Modifier
+                    .width(125.dp)
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(placeholderColor)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(placeholderColor)
+        )
+    }
+}
+
+@Composable
+private fun SpendingBreakdownSkeleton(placeholderColor: Color) {
+    TitaniumCard(contentPadding = 22.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(150.dp)
+                    .height(18.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(placeholderColor)
+            )
+            Box(
+                modifier = Modifier
+                    .width(56.dp)
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(placeholderColor)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(84.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(placeholderColor)
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(116.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(placeholderColor)
+        )
+
+        repeat(MAX_VISIBLE_CATEGORY_ROWS) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(placeholderColor)
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .width(115.dp)
+                                    .height(14.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(placeholderColor)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .width(80.dp)
+                                    .height(10.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(placeholderColor)
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .width(75.dp)
+                            .height(14.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(placeholderColor)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(placeholderColor)
+                )
+            }
         }
     }
 }
@@ -689,6 +1625,9 @@ private fun PureErrorState(
     }
 }
 
+// ==========================================
+// 5. Formatting & Animation Helpers
+// ==========================================
 @Composable
 private fun formatCurrency(
     amount: Number,

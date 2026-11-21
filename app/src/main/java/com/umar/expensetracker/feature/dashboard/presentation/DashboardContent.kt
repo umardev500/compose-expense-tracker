@@ -86,6 +86,7 @@ import kotlinx.coroutines.launch
 private const val MASKED_BALANCE = "••••••••"
 private const val MASKED_CASHFLOW = "••••"
 private const val MAX_VISIBLE_CATEGORY_ROWS = 3
+private const val MAX_VISIBLE_RECENT_TRANSACTIONS = 4
 
 data class SpendingCategory(
     val id: String,
@@ -93,6 +94,22 @@ data class SpendingCategory(
     val emoji: String,
     val transactionCount: Int,
     val amount: Double,
+    val accentColor: Color
+)
+
+enum class TransactionType {
+    INCOME,
+    EXPENSE
+}
+
+data class RecentTransaction(
+    val id: String,
+    val title: String,
+    val categoryName: String,
+    val emoji: String,
+    val timestampLabel: String,
+    val amount: Double,
+    val type: TransactionType,
     val accentColor: Color
 )
 
@@ -140,10 +157,13 @@ fun DashboardContent(
     uiState: DashboardUiState,
     modifier: Modifier = Modifier,
     spendingCategories: List<SpendingCategory> = defaultSpendingCategories(),
+    recentTransactions: List<RecentTransaction> = defaultRecentTransactions(),
     onToggleBalanceVisibility: () -> Unit = {},
     onNotificationClick: () -> Unit = {},
     onCategoryClick: (SpendingCategory) -> Unit = {},
     onSeeAllSpendingClick: () -> Unit = {},
+    onTransactionClick: (RecentTransaction) -> Unit = {},
+    onSeeAllTransactionsClick: () -> Unit = {},
     onRefresh: () -> Unit = {}
 ) {
     Box(
@@ -168,10 +188,13 @@ fun DashboardContent(
                 PureDashboardContent(
                     state = uiState,
                     spendingCategories = spendingCategories,
+                    recentTransactions = recentTransactions,
                     onToggleBalanceVisibility = onToggleBalanceVisibility,
                     onNotificationClick = onNotificationClick,
                     onCategoryClick = onCategoryClick,
                     onSeeAllSpendingClick = onSeeAllSpendingClick,
+                    onTransactionClick = onTransactionClick,
+                    onSeeAllTransactionsClick = onSeeAllTransactionsClick,
                     modifier = rememberContentScrollModifier()
                 )
             }
@@ -183,10 +206,13 @@ fun DashboardContent(
 private fun PureDashboardContent(
     state: DashboardUiState.Success,
     spendingCategories: List<SpendingCategory>,
+    recentTransactions: List<RecentTransaction>,
     onToggleBalanceVisibility: () -> Unit,
     onNotificationClick: () -> Unit,
     onCategoryClick: (SpendingCategory) -> Unit,
     onSeeAllSpendingClick: () -> Unit,
+    onTransactionClick: (RecentTransaction) -> Unit,
+    onSeeAllTransactionsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -213,6 +239,15 @@ private fun PureDashboardContent(
             onCategoryClick = onCategoryClick,
             onSeeAllClick = onSeeAllSpendingClick
         )
+
+        RecentTransactionsSection(
+            transactions = recentTransactions,
+            isBalanceVisible = state.isBalanceVisible,
+            onTransactionClick = onTransactionClick,
+            onSeeAllClick = onSeeAllTransactionsClick
+        )
+
+        DeveloperInfoSection()
     }
 }
 
@@ -931,7 +966,6 @@ private fun SpendingRingOverview(
                     )
                 }
             }
-            // Mark completion only after every staggered segment has finished.
             delay((categories.lastIndex.coerceAtLeast(0) * 85L) + 600L)
             ringAnimationCompleted = true
         }
@@ -1380,6 +1414,304 @@ private fun defaultSpendingCategories(): List<SpendingCategory> = listOf(
 )
 
 // ==========================================
+// 3b. Recent Transactions
+// ==========================================
+@Composable
+private fun RecentTransactionsSection(
+    transactions: List<RecentTransaction>,
+    isBalanceVisible: Boolean,
+    onTransactionClick: (RecentTransaction) -> Unit,
+    onSeeAllClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val visibleTransactions = remember(transactions) {
+        transactions.take(MAX_VISIBLE_RECENT_TRANSACTIONS)
+    }
+
+    TitaniumCard(modifier = modifier, contentPadding = 22.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "Transaksi Terakhir",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "${transactions.size} aktivitas tercatat",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(onClick = onSeeAllClick)
+            ) {
+                Text(
+                    text = "Semua",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                )
+            }
+        }
+
+        if (visibleTransactions.isEmpty()) {
+            EmptyRecentTransactionsState()
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                visibleTransactions.forEachIndexed { index, transaction ->
+                    RecentTransactionRow(
+                        transaction = transaction,
+                        isBalanceVisible = isBalanceVisible,
+                        onClick = { onTransactionClick(transaction) }
+                    )
+
+                    if (index < visibleTransactions.lastIndex) {
+                        HorizontalDivider(
+                            thickness = 0.6.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentTransactionRow(
+    transaction: RecentTransaction,
+    isBalanceVisible: Boolean,
+    onClick: () -> Unit
+) {
+    val isIncome = transaction.type == TransactionType.INCOME
+    val prefix = if (isIncome) "+" else "-"
+    val amountColor = if (isIncome) {
+        MaterialTheme.colorScheme.tertiary
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    val badgeColor = if (isIncome) {
+        MaterialTheme.colorScheme.tertiary
+    } else {
+        MaterialTheme.colorScheme.error
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Surface(
+            modifier = Modifier.size(40.dp),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(
+                width = 1.2.dp,
+                color = transaction.accentColor.copy(alpha = 0.45f)
+            )
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = transaction.emoji,
+                    fontSize = 18.sp,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = transaction.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${transaction.categoryName} · ${transaction.timestampLabel}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = if (isBalanceVisible) {
+                    "$prefix${formatCurrency(transaction.amount, withCurrency = true)}"
+                } else {
+                    MASKED_CASHFLOW
+                },
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFeatureSettings = "tnum"
+                ),
+                fontWeight = FontWeight.SemiBold,
+                color = amountColor,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Icon(
+                    imageVector = if (isIncome) HeroIcons.ArrowDown else HeroIcons.ArrowUp,
+                    contentDescription = null,
+                    tint = badgeColor,
+                    modifier = Modifier.size(11.dp)
+                )
+                Text(
+                    text = if (isIncome) "Masuk" else "Keluar",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    fontWeight = FontWeight.Medium,
+                    color = badgeColor
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyRecentTransactionsState() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 22.dp, horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = "Belum ada transaksi terakhir",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Riwayat pemasukan dan pengeluaran terbaru akan muncul di sini.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun defaultRecentTransactions(): List<RecentTransaction> = listOf(
+    RecentTransaction(
+        id = "tx_1",
+        title = "Makan Siang Warung Padang",
+        categoryName = "Makanan & Minuman",
+        emoji = "🍜",
+        timestampLabel = "Hari ini, 12:35",
+        amount = 45_000.0,
+        type = TransactionType.EXPENSE,
+        accentColor = MaterialTheme.colorScheme.error
+    ),
+    RecentTransaction(
+        id = "tx_2",
+        title = "Gaji Bulanan",
+        categoryName = "Pemasukan",
+        emoji = "💼",
+        timestampLabel = "Kemarin, 09:00",
+        amount = 8_500_000.0,
+        type = TransactionType.INCOME,
+        accentColor = MaterialTheme.colorScheme.tertiary
+    ),
+    RecentTransaction(
+        id = "tx_3",
+        title = "Token Listrik PLN",
+        categoryName = "Tagihan & Utilitas",
+        emoji = "⚡",
+        timestampLabel = "19 Nov, 19:15",
+        amount = 250_000.0,
+        type = TransactionType.EXPENSE,
+        accentColor = MaterialTheme.colorScheme.tertiary
+    ),
+    RecentTransaction(
+        id = "tx_4",
+        title = "Bensin & Tol",
+        categoryName = "Transportasi",
+        emoji = "🚗",
+        timestampLabel = "18 Nov, 08:20",
+        amount = 120_000.0,
+        type = TransactionType.EXPENSE,
+        accentColor = MaterialTheme.colorScheme.primary
+    )
+)
+
+// ==========================================
+// 3c. Developer Info
+// ==========================================
+@Composable
+private fun DeveloperInfoSection(
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Text(
+            text = "Umar",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = "Software Engineer  |  Tech Enthusiast",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = "I love you Ririn ❤",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+// ==========================================
 // 4. Loading & Error States
 // ==========================================
 @Composable
@@ -1405,6 +1737,8 @@ private fun PureLoadingSkeleton(
         TopBarSkeleton(placeholderColor = placeholderColor)
         HeroBalanceSkeleton(placeholderColor = placeholderColor)
         SpendingBreakdownSkeleton(placeholderColor = placeholderColor)
+        RecentTransactionsSkeleton(placeholderColor = placeholderColor)
+        DeveloperInfoSkeleton(placeholderColor = placeholderColor)
     }
 }
 
@@ -1592,6 +1926,129 @@ private fun SpendingBreakdownSkeleton(placeholderColor: Color) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun RecentTransactionsSkeleton(placeholderColor: Color) {
+    TitaniumCard(contentPadding = 22.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier
+                        .width(145.dp)
+                        .height(18.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(placeholderColor)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(105.dp)
+                        .height(12.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(placeholderColor)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .width(56.dp)
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(placeholderColor)
+            )
+        }
+
+        repeat(MAX_VISIBLE_RECENT_TRANSACTIONS) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(placeholderColor)
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .width(130.dp)
+                                .height(14.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(placeholderColor)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(95.dp)
+                                .height(11.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(placeholderColor)
+                        )
+                    }
+                }
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(80.dp)
+                            .height(14.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(placeholderColor)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(42.dp)
+                            .height(11.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(placeholderColor)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeveloperInfoSkeleton(placeholderColor: Color) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(64.dp)
+                .height(12.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(placeholderColor)
+        )
+        Box(
+            modifier = Modifier
+                .width(175.dp)
+                .height(10.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(placeholderColor)
+        )
+        Box(
+            modifier = Modifier
+                .width(96.dp)
+                .height(10.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(placeholderColor)
+        )
     }
 }
 

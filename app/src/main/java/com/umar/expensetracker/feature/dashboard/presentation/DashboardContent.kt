@@ -477,7 +477,7 @@ private fun HeroBalanceAmount(
 ) {
     val countedBalance = rememberCountAnimation(
         targetValue = totalBalance,
-        enabled = isBalanceVisible
+        enabled = true
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -533,11 +533,11 @@ private fun CashflowSplitBar(
 ) {
     val countedIncome = rememberCountAnimation(
         targetValue = totalIncome,
-        enabled = isBalanceVisible
+        enabled = true
     )
     val countedExpense = rememberCountAnimation(
         targetValue = totalExpense,
-        enabled = isBalanceVisible
+        enabled = true
     )
 
     InsetSurface(modifier = modifier.fillMaxWidth()) {
@@ -769,11 +769,11 @@ private fun RemainingSpendingBanner(
 ) {
     val countedRemaining = rememberCountAnimation(
         targetValue = snapshot.remainingAmount,
-        enabled = isBalanceVisible,
+        enabled = true,
         durationMillis = 500
     )
     val animatedUsedFraction by animateFloatAsState(
-        targetValue = if (isBalanceVisible) snapshot.usedFraction else 0f,
+        targetValue = snapshot.usedFraction,
         animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
         label = "remainingUsedFraction"
     )
@@ -828,7 +828,7 @@ private fun RemainingSpendingBanner(
                     color = statusColor.copy(alpha = 0.12f)
                 ) {
                     Text(
-                        text = if (isBalanceVisible) "${snapshot.remainingPercent}% tersisa" else MASKED_CASHFLOW,
+                        text = "${snapshot.remainingPercent}% tersisa",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontFeatureSettings = "tnum"
                         ),
@@ -898,7 +898,7 @@ private fun SpendingRingOverview(
         ?: fallbackTotalExpense
     val countedDisplayAmount = rememberCountAnimation(
         targetValue = displayAmount,
-        enabled = isBalanceVisible,
+        enabled = true,
         durationMillis = 450
     )
 
@@ -906,22 +906,18 @@ private fun SpendingRingOverview(
         List(categories.size) { Animatable(0f) }
     }
 
-    LaunchedEffect(categories, isBalanceVisible) {
-        if (!isBalanceVisible) {
-            segmentAnimatables.forEach { it.snapTo(0f) }
-        } else {
-            segmentAnimatables.forEachIndexed { index, anim ->
-                anim.snapTo(0f)
-                launch {
-                    delay(index * 85L)
-                    anim.animateTo(
-                        targetValue = 1f,
-                        animationSpec = tween(
-                            durationMillis = 600,
-                            easing = FastOutSlowInEasing
-                        )
+    LaunchedEffect(categories) {
+        segmentAnimatables.forEachIndexed { index, anim ->
+            anim.snapTo(0f)
+            launch {
+                delay(index * 85L)
+                anim.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(
+                        durationMillis = 600,
+                        easing = FastOutSlowInEasing
                     )
-                }
+                )
             }
         }
     }
@@ -961,7 +957,6 @@ private fun SpendingRingOverview(
                         categories = categories,
                         selectedCategory = selectedCategory,
                         totalBase = totalBase,
-                        isBalanceVisible = isBalanceVisible,
                         selectionProgress = selectionProgress,
                         segmentProgress = { index -> segmentAnimatables.getOrNull(index)?.value ?: 1f },
                         trackColor = trackColor
@@ -970,8 +965,7 @@ private fun SpendingRingOverview(
 
                 RingCenterReadout(
                     selectedCategory = selectedCategory,
-                    sharePercent = sharePercent,
-                    isBalanceVisible = isBalanceVisible
+                    sharePercent = sharePercent
                 )
             }
 
@@ -991,7 +985,6 @@ private fun DrawScope.drawSpendingRing(
     categories: List<SpendingCategory>,
     selectedCategory: SpendingCategory?,
     totalBase: Double,
-    isBalanceVisible: Boolean,
     selectionProgress: Float,
     segmentProgress: (Int) -> Float,
     trackColor: Color
@@ -1009,8 +1002,6 @@ private fun DrawScope.drawSpendingRing(
         size = Size(size.width - focusedStroke, size.height - focusedStroke),
         style = Stroke(width = baseStroke, cap = StrokeCap.Round)
     )
-
-    if (!isBalanceVisible) return
 
     var currentAngle = -90f
     val gapAngle = when {
@@ -1065,8 +1056,7 @@ private fun DrawScope.drawSpendingRing(
 @Composable
 private fun RingCenterReadout(
     selectedCategory: SpendingCategory?,
-    sharePercent: Int,
-    isBalanceVisible: Boolean
+    sharePercent: Int
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1081,7 +1071,7 @@ private fun RingCenterReadout(
             )
         }
         Text(
-            text = if (isBalanceVisible) "$sharePercent%" else MASKED_CASHFLOW,
+            text = "$sharePercent%",
             style = MaterialTheme.typography.titleMedium.copy(
                 fontFeatureSettings = "tnum"
             ),
@@ -1158,11 +1148,11 @@ private fun SpendingCategoryRow(
 ) {
     val countedAmount = rememberCountAnimation(
         targetValue = category.amount,
-        enabled = isBalanceVisible,
+        enabled = true,
         durationMillis = 550 + animationDelayMillis
     )
     val animatedRatio by animateFloatAsState(
-        targetValue = if (isBalanceVisible) ratio else 0f,
+        targetValue = ratio,
         animationSpec = tween(
             durationMillis = 600 + animationDelayMillis,
             easing = FastOutSlowInEasing

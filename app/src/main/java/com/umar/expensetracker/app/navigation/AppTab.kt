@@ -60,8 +60,8 @@ object ReportTab : AppTab {
     override val destination: ScreenFactory = ScreenFactory.Report
 
     override val icons = TabIcons(
-        selected = HeroIcons.ChartBarSolid,
-        unselected = HeroIcons.ChartBar
+        selected = HeroIcons.ArrowTrendingUp,
+        unselected = HeroIcons.ArrowTrendingUp
     )
 
     override val options: TabOptions

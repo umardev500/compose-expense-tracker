@@ -646,6 +646,9 @@ private fun SpendingBreakdownSection(
     modifier: Modifier = Modifier
 ) {
     val safeExpense = totalExpense.coerceAtLeast(0.0)
+    val budgetSnapshot = remember(totalBalance, safeExpense) {
+        BudgetSnapshot.from(totalBalance = totalBalance, totalExpense = safeExpense)
+    }
     val sortedCategories = remember(categories, safeExpense) {
         val rawSum = categories.sumOf { it.amount.coerceAtLeast(0.0) }
         val scale = if (rawSum > 0.0 && safeExpense > 0.0) safeExpense / rawSum else 1.0
@@ -673,7 +676,7 @@ private fun SpendingBreakdownSection(
         )
 
         RemainingSpendingBanner(
-            snapshot = BudgetSnapshot.from(totalBalance = totalBalance, totalExpense = safeExpense),
+            snapshot = budgetSnapshot,
             isBalanceVisible = isBalanceVisible
         )
 
@@ -685,6 +688,7 @@ private fun SpendingBreakdownSection(
                 selectedCategory = selectedCategory,
                 totalBase = totalBase,
                 totalExpense = safeExpense,
+                remainingPercent = budgetSnapshot.remainingPercent,
                 isBalanceVisible = isBalanceVisible
             )
 
@@ -895,6 +899,7 @@ private fun SpendingRingOverview(
     selectedCategory: SpendingCategory?,
     totalBase: Double,
     totalExpense: Double,
+    remainingPercent: Int,
     isBalanceVisible: Boolean
 ) {
     val trackColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f)
@@ -931,9 +936,15 @@ private fun SpendingRingOverview(
         label = "ringSelectionProgress"
     )
 
-    val sharePercent = remember(selectedCategory, totalBase, totalExpense) {
-        val target = selectedCategory?.amount ?: totalExpense
-        ((target / totalBase) * 100).roundToInt().coerceIn(0, 100)
+    val categorySharePercent = remember(selectedCategory, totalBase) {
+        val categoryAmount = selectedCategory?.amount ?: 0.0
+        ((categoryAmount / totalBase) * 100.0).roundToInt().coerceIn(0, 100)
+    }
+
+    val centerPercent = if (selectedCategory != null) {
+        categorySharePercent
+    } else {
+        remainingPercent.coerceIn(0, 100)
     }
 
     InsetSurface(
@@ -966,14 +977,15 @@ private fun SpendingRingOverview(
 
                 RingCenterReadout(
                     selectedCategory = selectedCategory,
-                    sharePercent = sharePercent
+                    centerPercent = centerPercent,
+                    isBalanceVisible = isBalanceVisible
                 )
             }
 
             RingSummaryDetails(
                 categories = categories,
                 selectedCategory = selectedCategory,
-                sharePercent = sharePercent,
+                sharePercent = categorySharePercent,
                 countedAmount = countedDisplayAmount,
                 isBalanceVisible = isBalanceVisible,
                 modifier = Modifier.weight(1f)
@@ -1057,7 +1069,8 @@ private fun DrawScope.drawSpendingRing(
 @Composable
 private fun RingCenterReadout(
     selectedCategory: SpendingCategory?,
-    sharePercent: Int
+    centerPercent: Int,
+    isBalanceVisible: Boolean
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1072,7 +1085,7 @@ private fun RingCenterReadout(
             )
         }
         Text(
-            text = "$sharePercent%",
+            text = if (isBalanceVisible) "$centerPercent%" else MASKED_CASHFLOW,
             style = MaterialTheme.typography.titleMedium.copy(
                 fontFeatureSettings = "tnum"
             ),

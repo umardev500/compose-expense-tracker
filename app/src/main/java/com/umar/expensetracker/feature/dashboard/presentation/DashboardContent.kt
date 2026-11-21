@@ -132,7 +132,7 @@ private fun rememberContentScrollModifier(
 ): Modifier = modifier
     .fillMaxSize()
     .verticalScroll(rememberScrollState())
-    .padding(horizontal = 22.dp, vertical = 20.dp)
+    .padding(horizontal = 20.dp, vertical = 20.dp)
 
 @Composable
 fun DashboardContent(

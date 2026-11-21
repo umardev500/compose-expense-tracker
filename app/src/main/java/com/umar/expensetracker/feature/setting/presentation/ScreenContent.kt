@@ -54,6 +54,8 @@ import com.umar.expensetracker.ui.icon.HeroIcons
 data class SettingUiState(
     val userName: String = "Umar",
     val userSubtitle: String = "Dompet Pribadi · IDR",
+    val walletCount: Int = 3,
+    val totalWalletBalanceText: String = "Rp12.500.000",
     val currencyCode: String = "IDR (Rp)",
     val isDarkTheme: Boolean = false,
     val isHideBalanceByDefault: Boolean = false,
@@ -67,6 +69,7 @@ fun SettingContent(
     uiState: SettingUiState = SettingUiState(),
     modifier: Modifier = Modifier,
     onEditProfileClick: () -> Unit = {},
+    onWalletsClick: () -> Unit = {},
     onCurrencyClick: () -> Unit = {},
     onToggleDarkTheme: (Boolean) -> Unit = {},
     onToggleHideBalanceByDefault: (Boolean) -> Unit = {},
@@ -96,12 +99,26 @@ fun SettingContent(
             )
             SettingDivider()
             SettingActionItem(
+                title = "Dompet & Saldo",
+                subtitle = if (uiState.isHideBalanceByDefault) {
+                    "Total ${uiState.walletCount} dompet · Disembunyikan"
+                } else {
+                    "Total ${uiState.totalWalletBalanceText} · ${uiState.walletCount} dompet"
+                },
+                valueText = "${uiState.walletCount} dompet",
+                icon = HeroIcons.Wallet,
+                iconTint = MaterialTheme.colorScheme.primary,
+                iconBg = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                onClick = onWalletsClick
+            )
+            SettingDivider()
+            SettingActionItem(
                 title = "Mata Uang Utama",
                 subtitle = "Format tampilan nominal transaksi",
                 valueText = uiState.currencyCode,
                 icon = HeroIcons.CurrencyDollar,
-                iconTint = MaterialTheme.colorScheme.primary,
-                iconBg = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                iconTint = MaterialTheme.colorScheme.tertiary,
+                iconBg = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f),
                 onClick = onCurrencyClick
             )
         }

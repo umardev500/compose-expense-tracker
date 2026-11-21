@@ -645,16 +645,21 @@ private fun SpendingBreakdownSection(
     onSeeAllClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val sortedCategories = remember(categories) {
-        categories.sortedByDescending { it.amount }
+    val safeExpense = totalExpense.coerceAtLeast(0.0)
+    val sortedCategories = remember(categories, safeExpense) {
+        val rawSum = categories.sumOf { it.amount.coerceAtLeast(0.0) }
+        val scale = if (rawSum > 0.0 && safeExpense > 0.0) safeExpense / rawSum else 1.0
+        categories
+            .map { category ->
+                category.copy(amount = category.amount.coerceAtLeast(0.0) * scale)
+            }
+            .sortedByDescending { it.amount }
     }
     val topRows = remember(sortedCategories) {
         sortedCategories.take(MAX_VISIBLE_CATEGORY_ROWS)
     }
-    val totalBase = remember(sortedCategories, totalExpense) {
-        val sum = sortedCategories.sumOf { it.amount }
-        if (sum > 0.0) sum else totalExpense.coerceAtLeast(1.0)
-    }
+    val totalBase = if (safeExpense > 0.0) safeExpense else 1.0
+
     var selectedCategoryId by remember { mutableStateOf<String?>(null) }
     val selectedCategory = remember(sortedCategories, selectedCategoryId) {
         sortedCategories.find { it.id == selectedCategoryId }
@@ -668,7 +673,7 @@ private fun SpendingBreakdownSection(
         )
 
         RemainingSpendingBanner(
-            snapshot = BudgetSnapshot.from(totalBalance = totalBalance, totalExpense = totalExpense),
+            snapshot = BudgetSnapshot.from(totalBalance = totalBalance, totalExpense = safeExpense),
             isBalanceVisible = isBalanceVisible
         )
 
@@ -679,7 +684,7 @@ private fun SpendingBreakdownSection(
                 categories = sortedCategories,
                 selectedCategory = selectedCategory,
                 totalBase = totalBase,
-                fallbackTotalExpense = totalExpense,
+                totalExpense = safeExpense,
                 isBalanceVisible = isBalanceVisible
             )
 
@@ -889,13 +894,11 @@ private fun SpendingRingOverview(
     categories: List<SpendingCategory>,
     selectedCategory: SpendingCategory?,
     totalBase: Double,
-    fallbackTotalExpense: Double,
+    totalExpense: Double,
     isBalanceVisible: Boolean
 ) {
     val trackColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f)
-    val displayAmount = selectedCategory?.amount
-        ?: categories.sumOf { it.amount }.takeIf { it > 0.0 }
-        ?: fallbackTotalExpense
+    val displayAmount = selectedCategory?.amount ?: totalExpense
     val countedDisplayAmount = rememberCountAnimation(
         targetValue = displayAmount,
         enabled = true,
@@ -928,10 +931,8 @@ private fun SpendingRingOverview(
         label = "ringSelectionProgress"
     )
 
-    val sharePercent = remember(selectedCategory, categories, totalBase) {
-        val target = selectedCategory?.amount
-            ?: categories.sumOf { it.amount }.takeIf { it > 0.0 }
-            ?: totalBase
+    val sharePercent = remember(selectedCategory, totalBase, totalExpense) {
+        val target = selectedCategory?.amount ?: totalExpense
         ((target / totalBase) * 100).roundToInt().coerceIn(0, 100)
     }
 

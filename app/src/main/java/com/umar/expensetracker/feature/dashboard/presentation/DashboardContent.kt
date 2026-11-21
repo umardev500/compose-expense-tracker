@@ -51,6 +51,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -910,23 +911,29 @@ private fun SpendingRingOverview(
         durationMillis = 450
     )
 
-    val segmentAnimatables = remember(categories.size) {
-        List(categories.size) { Animatable(0f) }
+    val categoryIds = remember(categories) { categories.map(SpendingCategory::id) }
+    var ringAnimationCompleted by rememberSaveable(categoryIds) { mutableStateOf(false) }
+    val segmentAnimatables = remember(categoryIds, ringAnimationCompleted) {
+        List(categories.size) { Animatable(if (ringAnimationCompleted) 1f else 0f) }
     }
 
-    LaunchedEffect(categories) {
-        segmentAnimatables.forEachIndexed { index, anim ->
-            anim.snapTo(0f)
-            launch {
-                delay(index * 85L)
-                anim.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(
-                        durationMillis = 600,
-                        easing = FastOutSlowInEasing
+    LaunchedEffect(categoryIds, ringAnimationCompleted) {
+        if (!ringAnimationCompleted) {
+            segmentAnimatables.forEachIndexed { index, anim ->
+                launch {
+                    delay(index * 85L)
+                    anim.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis = 600,
+                            easing = FastOutSlowInEasing
+                        )
                     )
-                )
+                }
             }
+            // Mark completion only after every staggered segment has finished.
+            delay((categories.lastIndex.coerceAtLeast(0) * 85L) + 600L)
+            ringAnimationCompleted = true
         }
     }
 
@@ -1657,13 +1664,16 @@ fun rememberCountAnimation(
     durationMillis: Int = 650,
     startFromZeroOnEnable: Boolean = true
 ): Float {
-    val animatable = remember { Animatable(0f) }
+    var animationCompleted by rememberSaveable(targetValue) { mutableStateOf(false) }
+    val animatable = remember(targetValue, animationCompleted) {
+        Animatable(if (animationCompleted) targetValue.toFloat() else 0f)
+    }
 
-    LaunchedEffect(targetValue, enabled) {
-        if (startFromZeroOnEnable) {
-            animatable.snapTo(0f)
-        }
-        if (enabled) {
+    LaunchedEffect(targetValue, enabled, animationCompleted) {
+        if (enabled && !animationCompleted) {
+            if (startFromZeroOnEnable) {
+                animatable.snapTo(0f)
+            }
             animatable.animateTo(
                 targetValue = targetValue.toFloat(),
                 animationSpec = tween(
@@ -1671,6 +1681,7 @@ fun rememberCountAnimation(
                     easing = FastOutSlowInEasing
                 )
             )
+            animationCompleted = true
         }
     }
 

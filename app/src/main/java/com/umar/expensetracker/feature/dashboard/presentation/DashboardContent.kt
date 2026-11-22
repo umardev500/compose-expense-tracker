@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -43,6 +42,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -310,21 +310,14 @@ private fun ProgressMeterBar(
     height: Dp,
     modifier: Modifier = Modifier
 ) {
-    Box(
+    LinearProgressIndicator(
+        progress = { fraction.coerceIn(0f, 1f) },
         modifier = modifier
             .fillMaxWidth()
-            .height(height)
-            .clip(RoundedCornerShape(999.dp))
-            .background(trackColor)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(fraction = fraction.coerceIn(0f, 1f))
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(999.dp))
-                .background(fillColor)
-        )
-    }
+            .height(height),
+        color = fillColor,
+        trackColor = trackColor
+    )
 }
 
 // ==========================================
@@ -1326,7 +1319,8 @@ private fun SpendingCategoryRow(
             fraction = animatedRatio,
             fillColor = category.accentColor,
             trackColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            height = 5.dp
+            height = 5.dp,
+            modifier = Modifier.padding(start = 48.dp)
         )
     }
 }

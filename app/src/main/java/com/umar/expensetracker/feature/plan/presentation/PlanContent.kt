@@ -29,8 +29,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +54,8 @@ import com.umar.expensetracker.ui.icon.HeroIcons
 private const val DEFAULT_MAX_BUDGETS_SHOWN = 4
 private const val HIGH_ALLOCATION_THRESHOLD = 0.85f
 private const val FULL_ALLOCATION_THRESHOLD = 1.0f
+private const val INITIAL_ENTER_ANIM_DURATION_MS = 650
+private const val UPDATE_ANIM_DURATION_MS = 320
 
 @Immutable
 data class GoalItemUi(
@@ -162,6 +168,37 @@ private fun rememberBudgetVisualStyle(budget: BudgetItemUi): BudgetVisualStyle {
             )
         }
     }
+}
+
+@Composable
+private fun rememberFirstOpenProgress(
+    targetProgress: Float,
+    key: Any,
+    label: String
+): Float {
+    var hasOpened by rememberSaveable(key) { mutableStateOf(false) }
+    var isFirstFrameComplete by remember(key) { mutableStateOf(hasOpened) }
+
+    LaunchedEffect(key) {
+        if (!hasOpened) {
+            isFirstFrameComplete = true
+            hasOpened = true
+        }
+    }
+
+    val desiredTarget = if (isFirstFrameComplete) targetProgress else 0f
+    val durationMs = if (hasOpened && !isFirstFrameComplete) {
+        INITIAL_ENTER_ANIM_DURATION_MS
+    } else {
+        UPDATE_ANIM_DURATION_MS
+    }
+
+    val animated by animateFloatAsState(
+        targetValue = desiredTarget,
+        animationSpec = tween(durationMillis = durationMs),
+        label = label
+    )
+    return animated
 }
 
 @Composable
@@ -466,10 +503,10 @@ private fun HighlightedGoalItem(
     goal: GoalItemUi,
     onClick: () -> Unit
 ) {
-    val animatedProgress by animateFloatAsState(
-        targetValue = goal.safeProgress,
-        animationSpec = tween(durationMillis = 350),
-        label = "goalProgress"
+    val animatedProgress = rememberFirstOpenProgress(
+        targetProgress = goal.safeProgress,
+        key = goal.id,
+        label = "goalFirstOpenProgress"
     )
     val density = LocalDensity.current
     val strokePx = with(density) { 3.dp.toPx() }
@@ -623,10 +660,10 @@ private fun BudgetCircleItem(
     budget: BudgetItemUi,
     onClick: () -> Unit
 ) {
-    val animatedProgress by animateFloatAsState(
-        targetValue = budget.safeProgress,
-        animationSpec = tween(durationMillis = 300),
-        label = "budgetCircleProgress"
+    val animatedProgress = rememberFirstOpenProgress(
+        targetProgress = budget.safeProgress,
+        key = budget.id,
+        label = "budgetFirstOpenProgress"
     )
     val style = rememberBudgetVisualStyle(budget)
 
